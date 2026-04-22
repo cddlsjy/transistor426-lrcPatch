@@ -344,9 +344,20 @@ object CollectionHelper {
             setIsBrowsable(false)
             setIsPlayable(true)
             /* check for "file://" prevents a crash when an old backup was restored */
-            if (station.image.isNotEmpty() && station.image.startsWith("file://") && station.image.toUri().toFile().exists()) {
-                setArtworkData(station.image.toUri().toFile().readBytes(), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-            } else {
+            try {
+                if (station.image.isNotEmpty() && station.image.startsWith("file://")) {
+                    val imageUri = station.image.toUri()
+                    val imageFile = imageUri.toFile()
+                    if (imageFile.exists()) {
+                        setArtworkData(imageFile.readBytes(), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                    } else {
+                        setArtworkData(ImageHelper.getStationImageAsByteArray(context), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                    }
+                } else {
+                    setArtworkData(ImageHelper.getStationImageAsByteArray(context), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading station image: ${e.message}")
                 setArtworkData(ImageHelper.getStationImageAsByteArray(context), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             }
             // keep original artwork URI for being included in Cast metadata
