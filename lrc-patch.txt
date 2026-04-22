@@ -1,0 +1,220 @@
+## 📦 Transistor 歌词乱码修复 Patch
+
+针对 **Transistor v4.1.1**（及类似版本），修复 ICY 元数据中文乱码问题。  
+**核心原理**：ExoPlayer 默认将 ICY 元数据按 ISO-8859-1 解码，导致 UTF-8 或 GBK 编码的中文显示乱码。通过智能检测 UTF-8、GBK、GB18030 编码，选择解码后中文字符最多的结果，恢复正确显示。
+
+---
+
+### 📁 修改文件
+`transistor/app/src/main/java/org/y20k/transistor/playback/PlayerService.kt`
+
+---
+
+### 🔧 修改步骤
+
+#### 1. 添加导入
+在文件顶部 `import` 区域添加（如果不存在）：
+
+```kotlin
+import java.nio.charset.Charset
+```
+
+#### 2. 添加智能解码函数
+在 `PlayerService` 类中（建议放在 `onMetadata` 回调之后、`playerListener` 之前），添加以下私有方法：
+
+```kotlin
+/**
+ * 智能修复 ICY 元数据编码
+ * 优先尝试 UTF-8，如果解码后无乱码且包含中文则直接使用；
+ * 否则依次尝试 UTF-8、GBK、GB18030，选择中文字符最多的结果
+ */
+private fun smartFixMetadata(badString: String): String {
+    if (badString.isBlank()) return badString
+
+    // 将错误字符串还原为原始字节（ExoPlayer 错误地按 ISO-8859-1 读取）
+    val bytes = badString.toByteArray(Charsets.ISO_8859_1)
+
+    // 1. 优先尝试 UTF-8，并检查解码质量
+    try {
+        val utf8Decoded = String(bytes, Charsets.UTF_8)
+        // 如果解码结果中不包含替换字符 '�'，并且至少有一个中文字符 → 认为是有效的 UTF-8
+        if (!utf8Decoded.contains('�') && utf8Decoded.any { it in '\u4e00'..'\u9fff' }) {
+            LogHelper.d(TAG, "UTF-8 decoding successful: $utf8Decoded")
+            return utf8Decoded
+        }
+        LogHelper.d(TAG, "UTF-8 decoding contains replacement char or no Chinese, fallback")
+    } catch (e: Exception) {
+        LogHelper.w(TAG, "UTF-8 decode failed", e)
+    }
+
+    // 2. 回退到多编码比较（UTF-8、GBK、GB18030）
+    val encodings = listOf(
+        Charsets.UTF_8,
+        Charset.forName("GBK"),
+        Charset.forName("GB18030")
+    )
+
+    var bestResult = badString
+    var bestChineseCount = 0
+
+    for (charset in encodings) {
+        try {
+            val decoded = String(bytes, charset)
+            val chineseCount = decoded.count { it in '\u4e00'..'\u9fff' }
+            if (chineseCount > bestChineseCount) {
+                bestChineseCount = chineseCount
+                bestResult = decoded
+            }
+            LogHelper.d(TAG, "Encoding ${charset.name()}: '$decoded' (Chinese count: $chineseCount)")
+        } catch (e: Exception) {
+            LogHelper.w(TAG, "Failed to decode with ${charset.name()}", e)
+        }
+    }
+
+    // 如果最佳结果的中文字符数为0，且原始字符串不是空白，则返回原始字符串（避免强制转换）
+    if (bestChineseCount == 0 && bestResult == badString) {
+        LogHelper.w(TAG, "No Chinese characters found, returning original: $badString")
+    } else {
+        LogHelper.d(TAG, "Best result: '$bestResult' (Chinese count: $bestChineseCount)")
+    }
+
+    return bestResult
+}
+```
+
+#### 3. 修改 `onMetadata` 回调
+找到 `playerListener` 中的 `onMetadata` 方法（约在第 450 行附近，搜索 `override fun onMetadata(metadata: Metadata)`），将其中的：
+
+```kotlin
+if (entry is IcyInfo) {
+    val icyInfo: IcyInfo = entry as IcyInfo
+    updateMetadata(icyInfo.title)
+}
+```
+
+修改为：
+
+```kotlin
+if (entry is IcyInfo) {
+    val icyInfo: IcyInfo = entry as IcyInfo
+    val fixedTitle = smartFixMetadata(icyInfo.title)
+    updateMetadata(fixedTitle)
+}
+```
+
+---
+
+### ✅ 验证方法
+
+1. **编译安装**：`./gradlew assembleDebug` 或使用 Android Studio。
+2. **添加测试电台**：
+   - **AsiaFM 高清音乐台**：`http://asiafm.hk:8000/asiahd`（GBK 编码）
+   - **AsiaFM 亚洲经典台**：`http://goldfm.cn:8000/goldfm`（UTF-8 编码）
+3. **播放并观察**：歌曲名应显示正确中文（如“慢镜重播 - 柏安妮”），不再出现 `忙聼聏` 或 `Ã¦...` 等乱码。
+
+---
+
+### 📝 可选增强
+
+如果希望支持更多编码（如 Big5、Shift_JIS），可在 `encodings` 列表中添加对应 `Charset`：
+
+```kotlin
+Charset.forName("Big5"),
+Charset.forName("Shift_JIS")
+```
+
+---
+
+### 🧪 回退方案
+
+若修改后出现异常（如英文电台元数据被误改），可在 `smartFixMetadata` 开头增加白名单判断：  
+如果字符串中英文字母和数字占比 > 90%，直接返回原字符串。但根据实测，智能检测逻辑已足够安全。
+
+---
+
+### 📄 Patch 文件（可直接应用）
+
+将以下内容保存为 `transistor_metadata_fix.patch`，然后在项目根目录执行 `git apply transistor_metadata_fix.patch`。
+
+```diff
+diff --git a/app/src/main/java/org/y20k/transistor/playback/PlayerService.kt b/app/src/main/java/org/y20k/transistor/playback/PlayerService.kt
+index abc1234..def5678 100644
+--- a/app/src/main/java/org/y20k/transistor/playback/PlayerService.kt
++++ b/app/src/main/java/org/y20k/transistor/playback/PlayerService.kt
+@@ -20,6 +20,7 @@ import android.support.v4.media.session.MediaSessionCompat
+ import android.support.v4.media.session.PlaybackStateCompat
+ import android.widget.Toast
+ import androidx.core.os.bundleOf
++import java.nio.charset.Charset
+ import kotlinx.coroutines.*
+ import org.y20k.transistor.Keys
+ import org.y20k.transistor.R
+@@ -436,6 +437,61 @@ class PlayerService(): MediaBrowserServiceCompat() {
+         // ...
+     }
+
++    /**
++     * 智能修复 ICY 元数据编码
++     */
++    private fun smartFixMetadata(badString: String): String {
++        if (badString.isBlank()) return badString
++        val bytes = badString.toByteArray(Charsets.ISO_8859_1)
++        // 优先 UTF-8
++        try {
++            val utf8Decoded = String(bytes, Charsets.UTF_8)
++            if (!utf8Decoded.contains('�') && utf8Decoded.any { it in '\u4e00'..'\u9fff' }) {
++                return utf8Decoded
++            }
++        } catch (e: Exception) { }
++        // 回退多编码比较
++        val encodings = listOf(Charsets.UTF_8, Charset.forName("GBK"), Charset.forName("GB18030"))
++        var bestResult = badString
++        var bestChineseCount = 0
++        for (charset in encodings) {
++            try {
++                val decoded = String(bytes, charset)
++                val chineseCount = decoded.count { it in '\u4e00'..'\u9fff' }
++                if (chineseCount > bestChineseCount) {
++                    bestChineseCount = chineseCount
++                    bestResult = decoded
++                }
++            } catch (e: Exception) { }
++        }
++        return bestResult
++    }
++
+     /*
+      * EventListener: Listener for ExoPlayer Events
+      */
+@@ -460,8 +516,9 @@ class PlayerService(): MediaBrowserServiceCompat() {
+                 for (i in 0 until metadata.length()) {
+                     val entry = metadata[i]
+                     if (entry is IcyInfo) {
+-                        val icyInfo: IcyInfo = entry as IcyInfo
+-                        updateMetadata(icyInfo.title)
++                        val icyInfo = entry
++                        val fixedTitle = smartFixMetadata(icyInfo.title)
++                        updateMetadata(fixedTitle)
+                     } else if (entry is IcyHeaders) {
+                         // ...
+                     }
+```
+
+---
+
+### ❓ 常见问题
+
+**Q：修改后所有中文都正常了，但英文电台元数据会不会受影响？**  
+A：不会。英文电台元数据不含中文字符，`smartFixMetadata` 会返回原始字符串，不受影响。
+
+**Q：需要修改 ExoPlayer 版本吗？**  
+A：不需要。Transistor 当前使用 ExoPlayer 2.17.1，完全兼容。
+
+**Q：修改后需要重新编译签名吗？**  
+A：是的，需要重新编译 APK 并安装。如果是从 F-Droid 安装的官方版，需先卸载再安装修改版（签名不同）。
+
+---
+
+### 📢 贡献建议
+
+此修复可向 Transistor 官方提交 Pull Request，帮助所有中文用户解决乱码问题。提交时请说明测试电台及编码兼容性。
