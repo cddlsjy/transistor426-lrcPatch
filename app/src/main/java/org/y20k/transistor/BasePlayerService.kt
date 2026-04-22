@@ -326,9 +326,7 @@ abstract class BasePlayerService: MediaLibraryService() {
             metadataStringEncoded = player.currentMediaItem?.mediaMetadata?.albumTitle.toString()
         }
         // 智能修复 ICY 元数据编码
-        val fixedMetadata = smartFixMetadata(metadataStringEncoded)
-        // remove HTML encoding
-        val metadataString: String = Html.fromHtml(fixedMetadata, Html.FROM_HTML_MODE_LEGACY).toString()
+        val metadataString: String = smartFixMetadata(metadataStringEncoded)
         // remove duplicates
         if (metadataHistory.contains(metadataString)) {
             metadataHistory.removeIf { it == metadataString }
