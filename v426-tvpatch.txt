@@ -1,0 +1,314 @@
+根据您提供的 v4.3.6 遥控器修改方案，我已将其适配到 Transistor v4.2.6 代码结构中。主要变化：将遥控器逻辑放入 `BasePlayerFragment`（因为 v4.2.6 使用 `PlayerFragment` 继承自 `BasePlayerFragment`），并调整高亮实现以匹配现有 UI。
+
+以下是 **5 个文件的完整修改内容**，请直接替换或添加对应部分。
+
+---
+
+### 1. Keys.kt —— 添加遥控器自动播放开关常量
+
+在 `Keys` 对象末尾（与其他 `PREF_` 常量并列）添加：
+
+```kotlin
+// 遥控器自动播放开关
+const val PREF_REMOTE_AUTO_PLAY = "REMOTE_AUTO_PLAY"
+```
+
+---
+
+### 2. PreferencesHelper.kt —— 添加读写方法
+
+在 `PreferencesHelper` 对象末尾添加：
+
+```kotlin
+/**
+ * Loads remote control auto-play setting
+ */
+fun loadRemoteAutoPlay(): Boolean {
+    return sharedPreferences.getBoolean(Keys.PREF_REMOTE_AUTO_PLAY, true)
+}
+
+/**
+ * Saves remote control auto-play setting
+ */
+fun saveRemoteAutoPlay(enabled: Boolean) {
+    sharedPreferences.edit { putBoolean(Keys.PREF_REMOTE_AUTO_PLAY, enabled) }
+}
+```
+
+---
+
+### 3. SettingsFragment.kt —— 添加设置开关
+
+在 `onCreatePreferences` 方法中，找到 `preferenceCategoryGeneral` 创建区域，在 `preferenceEnableTapAnywherePlayback` 之后添加：
+
+```kotlin
+// 遥控器自动播放开关
+val preferenceRemoteAutoPlay: SwitchPreferenceCompat = SwitchPreferenceCompat(activity as Context)
+preferenceRemoteAutoPlay.title = "遥控器自动播放"
+preferenceRemoteAutoPlay.summary = "上下键切换电台时自动播放"
+preferenceRemoteAutoPlay.key = Keys.PREF_REMOTE_AUTO_PLAY
+preferenceRemoteAutoPlay.setDefaultValue(true)
+preferenceCategoryGeneral.contains(preferenceRemoteAutoPlay)
+
+// 同时添加到 preference screen（放在 tap anywhere 之后）
+screen.addPreference(preferenceRemoteAutoPlay)
+```
+
+完整 `onCreatePreferences` 末尾部分应类似：
+
+```kotlin
+screen.addPreference(preferenceCategoryGeneral)
+screen.addPreference(preferenceThemeSelection)
+screen.addPreference(preferenceEnableTapAnywherePlayback)
+screen.addPreference(preferenceRemoteAutoPlay)      // 新增
+screen.addPreference(preferenceCategoryMaintenance)
+// ... 后续原有内容 ...
+```
+
+---
+
+### 4. BasePlayerFragment.kt —— 遥控器核心逻辑
+
+需要添加：
+- 成员变量 `remoteAutoPlayEnabled`
+- 初始化遥控器监听的方法 `setupRemoteControl()`
+- 移动选择、确认播放、滚动聚焦方法
+- 在 `onResume` 加载开关状态
+- 提供 `setPlayingPosition` 公开方法供适配器同步播放高亮
+
+**修改步骤：**
+
+#### 4.1 在类成员变量区添加（在 `private var tempStationUuid: String = String()` 下方）：
+
+```kotlin
+private var remoteAutoPlayEnabled = true
+```
+
+#### 4.2 在 `initializeViews()` 方法末尾调用 `setupRemoteControl()`：
+
+```kotlin
+private fun initializeViews() {
+    // ... 原有代码（adapter、swipe 等）...
+
+    // 新增：设置遥控器按键监听
+    setupRemoteControl()
+}
+```
+
+#### 4.3 添加遥控器相关方法（放在 `initializeViews()` 之后，例如在 `handleNavigationArguments` 附近）：
+
+```kotlin
+/* 设置遥控器方向键监听 */
+private fun setupRemoteControl() {
+    layout.recyclerView.isFocusable = true
+    layout.recyclerView.isFocusableInTouchMode = true
+    layout.recyclerView.setOnKeyListener { _, keyCode, event ->
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    moveSelection(-1)
+                    return@setOnKeyListener true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    moveSelection(1)
+                    return@setOnKeyListener true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    onConfirmPressed()
+                    return@setOnKeyListener true
+                }
+            }
+        }
+        false
+    }
+}
+
+/* 移动选中项 */
+private fun moveSelection(delta: Int) {
+    val list = collection.stations
+    if (list.isEmpty()) return
+
+    var currentPos = collectionAdapter.getSelectedPosition()
+    if (currentPos == -1) {
+        currentPos = playerState.stationPosition
+        if (currentPos !in 0 until list.size) currentPos = 0
+    }
+
+    var newPos = currentPos + delta
+    if (newPos < 0) newPos = list.size - 1
+    if (newPos >= list.size) newPos = 0
+
+    collectionAdapter.setSelectedPosition(newPos)
+    val station = list[newPos]
+
+    // 滚动并聚焦
+    scrollToPositionAndFocus(newPos)
+
+    // 自动播放（如果开关开启）
+    if (remoteAutoPlayEnabled) {
+        onPlayButtonTapped(newPos)
+    }
+}
+
+/* 确认键按下：播放/暂停 */
+private fun onConfirmPressed() {
+    val pos = collectionAdapter.getSelectedPosition()
+    if (pos == -1) return
+
+    val currentPlayingPos = playerState.stationPosition
+    val isPlaying = controller?.isPlaying == true
+
+    if (currentPlayingPos == pos && isPlaying) {
+        // 当前选中的电台正在播放 → 暂停
+        onPlayButtonTapped(pos)
+    } else {
+        // 否则播放
+        onPlayButtonTapped(pos)
+    }
+}
+
+/* 滚动到指定位置并请求焦点 */
+private fun scrollToPositionAndFocus(position: Int) {
+    layout.recyclerView.post {
+        val targetView = layout.layoutManager.findViewByPosition(position)
+        if (targetView != null) {
+            targetView.requestFocus()
+        } else {
+            layout.recyclerView.smoothScrollToPosition(position)
+            layout.recyclerView.postDelayed({
+                layout.layoutManager.findViewByPosition(position)?.requestFocus()
+            }, 150)
+        }
+    }
+}
+
+/* 供 CollectionAdapter 更新播放高亮（当播放状态改变时调用） */
+fun setPlayingPosition(position: Int) {
+    collectionAdapter.setPlayingPosition(position)
+}
+```
+
+#### 4.4 在 `onResume()` 中加载开关状态：
+
+```kotlin
+override fun onResume() {
+    super.onResume()
+    // ... 原有代码 ...
+    remoteAutoPlayEnabled = PreferencesHelper.loadRemoteAutoPlay()
+    // ...
+}
+```
+
+#### 4.5 修改播放状态变化时的逻辑，以便通知适配器更新播放高亮：
+
+在 `playerListener` 的 `onIsPlayingChanged` 回调中添加：
+
+```kotlin
+override fun onIsPlayingChanged(isPlaying: Boolean) {
+    super.onIsPlayingChanged(isPlaying)
+    // ... 原有代码 ...
+    // 新增：更新播放高亮
+    if (isPlaying) {
+        setPlayingPosition(playerState.stationPosition)
+    } else {
+        setPlayingPosition(-1)
+    }
+    // ...
+}
+```
+
+同时，当通过其他方式（如点击卡片）改变播放时，也需要同步。可以在 `onPlayButtonTapped` 方法末尾添加：
+
+```kotlin
+override fun onPlayButtonTapped(stationPosition: Int) {
+    // ... 原有逻辑 ...
+    // 更新播放高亮
+    setPlayingPosition(stationPosition)
+}
+```
+
+---
+
+### 5. CollectionAdapter.kt —— 添加选中/播放高亮
+
+#### 5.1 在类成员变量区添加（与 `expandedStationPosition` 并列）：
+
+```kotlin
+private var selectedPosition: Int = -1      // 遥控器选中位置
+private var playingPosition: Int = -1       // 当前播放位置
+```
+
+#### 5.2 添加公开方法（放在 `toggleStarredStation` 方法附近）：
+
+```kotlin
+fun setSelectedPosition(position: Int) {
+    val old = selectedPosition
+    selectedPosition = position
+    if (old != -1 && old < itemCount) notifyItemChanged(old)
+    if (position != -1 && position < itemCount) notifyItemChanged(position)
+}
+
+fun getSelectedPosition(): Int = selectedPosition
+
+fun setPlayingPosition(position: Int) {
+    val old = playingPosition
+    playingPosition = position
+    if (old != -1 && old < itemCount) notifyItemChanged(old)
+    if (position != -1 && position < itemCount) notifyItemChanged(position)
+}
+```
+
+#### 5.3 修改 `onBindViewHolder` 中的 `StationViewHolder` 分支，在 `setEditViews` 之前添加高亮逻辑：
+
+找到 `onBindViewHolder` 中处理 `StationViewHolder` 的部分，在 `setStarredIcon` 之后、`setEditViews` 之前插入：
+
+```kotlin
+// 遥控器选中高亮（背景色）
+if (position == selectedPosition) {
+    stationViewHolder.stationCardView.setBackgroundColor(ContextCompat.getColor(context, R.color.selected_item_background))
+} else {
+    stationViewHolder.stationCardView.setBackgroundColor(ContextCompat.getColor(context, android.R.color.transparent))
+}
+
+// 播放中高亮（星标区域显示播放图标）
+if (position == playingPosition) {
+    stationViewHolder.stationStarredView.isVisible = true
+    stationViewHolder.stationStarredView.setImageResource(R.drawable.ic_play_circle_outline_24dp)
+    // 可选：修改内容描述
+    stationViewHolder.stationStarredView.contentDescription = context.getString(R.string.descr_card_playing_station)
+} else {
+    // 恢复原有星标逻辑
+    if (station.starred) {
+        stationViewHolder.stationStarredView.isVisible = true
+        stationViewHolder.stationStarredView.setImageResource(R.drawable.ic_star_default_24dp)
+        stationViewHolder.stationStarredView.contentDescription = context.getString(R.string.descr_card_starred_station)
+    } else {
+        stationViewHolder.stationStarredView.isGone = true
+    }
+}
+```
+
+#### 5.4 添加颜色资源（如果没有的话）
+
+在 `res/values/colors.xml` 中添加：
+
+```xml
+<color name="selected_item_background">#1F000000</color> <!-- 半透明灰色，可根据需要调整 -->
+```
+
+或在 `res/drawable/shape_selected_station.xml` 中创建圆角背景，然后在适配器中使用 `setBackgroundResource`。这里采用简单颜色方式。
+
+---
+
+### 总结
+
+以上修改为 Transistor v4.2.6 添加了完整的遥控器支持：
+
+- ✅ 上下方向键在电台列表中移动选中项
+- ✅ 选中项自动滚动到视野内并获取焦点
+- ✅ 可选的“切换时自动播放”功能（通过设置开关控制）
+- ✅ 确认键播放/暂停当前选中电台
+- ✅ 播放中的电台在列表中以星标位置显示播放图标
+- ✅ 遥控器选中的电台有背景高亮
+
+请按顺序修改对应文件，编译运行即可。如有任何编译问题，请检查导入的类（如 `KeyEvent`、`ContextCompat`）是否已正确导入。

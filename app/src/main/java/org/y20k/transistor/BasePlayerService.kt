@@ -26,7 +26,6 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
-import android.text.Html
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat

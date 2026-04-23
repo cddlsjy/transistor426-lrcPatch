@@ -138,6 +138,14 @@ class SettingsFragment: PreferenceFragmentCompat(), YesNoDialog.YesNoDialogListe
         preferenceRemoteControl.setDefaultValue(PreferencesHelper.loadRemoteControlEnabled())
 
 
+        // set up "Remote Auto Play" preference
+        val preferenceRemoteAutoPlay: SwitchPreferenceCompat = SwitchPreferenceCompat(activity as Context)
+        preferenceRemoteAutoPlay.title = "遥控器自动播放"
+        preferenceRemoteAutoPlay.summary = "上下键切换电台时自动播放"
+        preferenceRemoteAutoPlay.key = Keys.PREF_REMOTE_AUTO_PLAY
+        preferenceRemoteAutoPlay.setDefaultValue(true)
+
+
         // set up "Update Station Images" preference
         val preferenceUpdateStationImages: Preference = Preference(activity as Context)
         preferenceUpdateStationImages.title = getString(R.string.pref_update_station_images_title)
@@ -288,6 +296,7 @@ class SettingsFragment: PreferenceFragmentCompat(), YesNoDialog.YesNoDialogListe
         screen.addPreference(preferenceEnableTapAnywherePlayback)
         screen.addPreference(preferenceAutoPlayLastStation)
         screen.addPreference(preferenceRemoteControl)
+        screen.addPreference(preferenceRemoteAutoPlay)
         screen.addPreference(preferenceCategoryMaintenance)
         screen.addPreference(preferenceUpdateStationImages)
 //        screen.addPreference(preferenceUpdateCollection)

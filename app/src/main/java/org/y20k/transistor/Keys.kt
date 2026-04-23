@@ -235,4 +235,7 @@ object Keys {
     // unique names
     const val NAME_PERIODIC_COLLECTION_UPDATE_WORK: String = "PERIODIC_COLLECTION_UPDATE_WORK"
 
+    // remote control auto play
+    const val PREF_REMOTE_AUTO_PLAY: String = "REMOTE_AUTO_PLAY"
+
 }

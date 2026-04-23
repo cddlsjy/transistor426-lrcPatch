@@ -337,4 +337,16 @@ object PreferencesHelper {
         }
     }
 
+
+    /* Loads remote control auto-play setting */
+    fun loadRemoteAutoPlay(): Boolean {
+        return sharedPreferences.getBoolean(Keys.PREF_REMOTE_AUTO_PLAY, true)
+    }
+
+
+    /* Saves remote control auto-play setting */
+    fun saveRemoteAutoPlay(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(Keys.PREF_REMOTE_AUTO_PLAY, enabled) }
+    }
+
 }

@@ -113,6 +113,7 @@ abstract class BasePlayerFragment: Fragment(),
     private val handler: Handler = Handler(Looper.getMainLooper())
     private var tempStationUuid: String = String()
     private var remoteControlEnabled: Boolean = false
+    private var remoteAutoPlayEnabled: Boolean = true
 
 
     /* Overrides onCreate from Fragment */
@@ -196,6 +197,8 @@ abstract class BasePlayerFragment: Fragment(),
         playerState = PreferencesHelper.loadPlayerState()
         // load remote control setting
         remoteControlEnabled = PreferencesHelper.loadRemoteControlEnabled()
+        // load remote auto play setting
+        remoteAutoPlayEnabled = PreferencesHelper.loadRemoteAutoPlay()
         // recreate player ui
         updatePlayerViews()
         updateStationListState()
@@ -537,9 +540,13 @@ abstract class BasePlayerFragment: Fragment(),
             newPosition = playerState.stationPosition - 1
         }
 
-        // update player state and start playback
+        // update player state
         playerState.stationPosition = newPosition
-        controller?.play(requireContext(), newPosition)
+
+        // auto play if enabled
+        if (remoteAutoPlayEnabled) {
+            controller?.play(requireContext(), newPosition)
+        }
         updatePlayerViews()
 
         // scroll to the new position and highlight it
@@ -559,9 +566,13 @@ abstract class BasePlayerFragment: Fragment(),
             newPosition = playerState.stationPosition + 1
         }
 
-        // update player state and start playback
+        // update player state
         playerState.stationPosition = newPosition
-        controller?.play(requireContext(), newPosition)
+
+        // auto play if enabled
+        if (remoteAutoPlayEnabled) {
+            controller?.play(requireContext(), newPosition)
+        }
         updatePlayerViews()
 
         // scroll to the new position and highlight it

@@ -28,6 +28,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.Group
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -78,6 +79,8 @@ class CollectionAdapter(private val context: Context, private val collectionAdap
     private var expandedStationPosition: Int = -1
     private var currentPlayingPosition: Int = -1
     private var focusedPosition: Int = -1
+    private var selectedPosition: Int = -1      // 遥控器选中位置
+    private var playingPosition: Int = -1       // 当前播放位置
 
 
     /* Listener Interface */
@@ -152,7 +155,7 @@ class CollectionAdapter(private val context: Context, private val collectionAdap
                 val stationViewHolder: StationViewHolder = holder
 
                 // set up station views
-                setStarredIcon(stationViewHolder, station)
+                setStarredIcon(stationViewHolder, station, position)
                 setStationName(stationViewHolder, station, position)
                 setStationImage(stationViewHolder, station, position)
                 setStationButtons(stationViewHolder, station)
@@ -270,16 +273,32 @@ class CollectionAdapter(private val context: Context, private val collectionAdap
 
 
     /* Toggles the starred icon */
-    private fun setStarredIcon(stationViewHolder: StationViewHolder, station: Station) {
-        when (station.starred) {
-            true -> {
-                if (station.imageColor != -1) {
-                    // stationViewHolder.stationCardView.setCardBackgroundColor(station.imageColor)
-                    stationViewHolder.stationStarredView.setColorFilter(station.imageColor)
+    private fun setStarredIcon(stationViewHolder: StationViewHolder, station: Station, position: Int) {
+        // 遥控器选中高亮（背景色）
+        if (position == selectedPosition) {
+            stationViewHolder.stationCardView.setBackgroundColor(ContextCompat.getColor(context, R.color.selected_item_background))
+        } else {
+            stationViewHolder.stationCardView.setBackgroundColor(ContextCompat.getColor(context, android.R.color.transparent))
+        }
+
+        // 播放中高亮（星标区域显示播放图标）
+        if (position == playingPosition) {
+            stationViewHolder.stationStarredView.isVisible = true
+            stationViewHolder.stationStarredView.setImageResource(R.drawable.ic_play_circle_outline_24dp)
+            stationViewHolder.stationStarredView.contentDescription = context.getString(R.string.descr_card_playing_station)
+        } else {
+            // 恢复原有星标逻辑
+            when (station.starred) {
+                true -> {
+                    if (station.imageColor != -1) {
+                        stationViewHolder.stationStarredView.setColorFilter(station.imageColor)
+                    }
+                    stationViewHolder.stationStarredView.isVisible = true
+                    stationViewHolder.stationStarredView.setImageResource(R.drawable.ic_star_default_24dp)
+                    stationViewHolder.stationStarredView.contentDescription = context.getString(R.string.descr_card_starred_station)
                 }
-                stationViewHolder.stationStarredView.isVisible = true
+                false -> stationViewHolder.stationStarredView.isGone = true
             }
-            false -> stationViewHolder.stationStarredView.isGone = true
         }
     }
 
@@ -448,6 +467,23 @@ class CollectionAdapter(private val context: Context, private val collectionAdap
         notifyItemMoved(position, CollectionHelper.getStationPosition(collection, stationUuid))
         // save collection and broadcast changes
         CollectionHelper.saveCollection(context, collection)
+    }
+
+
+    fun setSelectedPosition(position: Int) {
+        val old = selectedPosition
+        selectedPosition = position
+        if (old != -1 && old < itemCount) notifyItemChanged(old)
+        if (position != -1 && position < itemCount) notifyItemChanged(position)
+    }
+
+    fun getSelectedPosition(): Int = selectedPosition
+
+    fun setPlayingPosition(position: Int) {
+        val old = playingPosition
+        playingPosition = position
+        if (old != -1 && old < itemCount) notifyItemChanged(old)
+        if (position != -1 && position < itemCount) notifyItemChanged(position)
     }
 
 
