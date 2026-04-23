@@ -107,6 +107,7 @@
     <string name="descr_back_icon">Navigate back</string>
     <string name="descr_card_small_play_button">Play/stop</string>
     <string name="descr_card_starred_station">Starred station</string>
+    <string name="descr_card_playing_station">Currently playing</string>
     <string name="descr_card_station_image">Station image</string>
     <string name="descr_card_station_image_change">Change station image</string>
     <string name="descr_dialog_edit_place_on_home_screen_icon">Place on Home screen</string>
